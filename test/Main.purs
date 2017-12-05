@@ -15,6 +15,7 @@ import Data.Foreign.Generic.Types (Options, SumEncoding(..))
 import Data.Foreign.JSON (parseJSON)
 import Data.Foreign.NullOrUndefined (NullOrUndefined(..))
 import Data.Generic.Rep (class Generic)
+import Data.Map as M
 import Data.Maybe (Maybe(..))
 import Data.StrMap as StrMap
 import Data.String (toLower, toUpper)
@@ -119,6 +120,7 @@ main = do
   testRoundTrip (makeTree 0)
   testRoundTrip (makeTree 5)
   testRoundTrip (StrMap.fromFoldable [Tuple "one" 1, Tuple "two" 2])
+  testRoundTrip (M.fromFoldable [Tuple 1 11, Tuple 2 22])
   testUnaryConstructorLiteral
   let opts = defaultOptions { fieldTransform = toUpper }
   testGenericRoundTrip opts (RecordTest { foo: 1, bar: "test", baz: 'a' })

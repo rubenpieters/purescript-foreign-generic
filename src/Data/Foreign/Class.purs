@@ -2,13 +2,19 @@ module Data.Foreign.Class where
 
 import Prelude
 import Control.Monad.Except (mapExcept)
+import Control.Monad.Except.Trans (except)
 import Data.Array ((..), zipWith, length)
 import Data.Bifunctor (lmap)
-import Data.Foreign (F, Foreign, ForeignError(ErrorAtIndex), readArray, readBoolean, readChar, readInt, readNumber, readString, toForeign)
+import Data.Either (note)
+import Data.Foreign (F, Foreign, ForeignError(..), readArray, readBoolean, readChar, readInt, readNumber, readString, toForeign)
 import Data.Foreign.NullOrUndefined (NullOrUndefined(..), readNullOrUndefined, undefined)
-import Data.Maybe (maybe)
+import Data.Int (fromString)
+import Data.List.NonEmpty (singleton)
+import Data.Maybe (Maybe, maybe)
+import Data.Map as M
 import Data.StrMap as StrMap
-import Data.Traversable (sequence)
+import Data.Traversable (sequence, traverse)
+import Data.Tuple (Tuple(..))
 import Data.Foreign.Internal (readStrMap)
 
 -- | The `Decode` class is used to generate decoding functions
@@ -58,6 +64,25 @@ instance arrayDecode :: Decode a => Decode (Array a) where
 instance strMapDecode :: (Decode v) => Decode (StrMap.StrMap v) where
   decode = sequence <<< StrMap.mapWithKey (\_ -> decode) <=< readStrMap
 
+class DecodeKey k where
+  decodeKey :: String -> Maybe k
+
+instance intDecodeKey :: DecodeKey Int where
+  decodeKey = fromString
+
+instance mapDecode :: (Ord k, DecodeKey k, Decode v) => Decode (M.Map k v) where
+  decode = map (M.fromFoldable :: Array (Tuple k v) -> M.Map k v)
+           <<< traverse decodeTuple
+           <=< map StrMap.toUnfoldable
+           <<< readStrMap
+    where
+      decodeTuple :: Ord k => DecodeKey k => Decode v
+                  => Tuple String Foreign -> F (Tuple k v)
+      decodeTuple (Tuple k v) = do
+        decodedV <- decode v
+        decodedK <- except $ note (singleton $ ErrorAtProperty k (ForeignError "Cannot decode key")) (decodeKey k)
+        pure $ Tuple decodedK decodedV
+
 -- | The `Encode` class is used to generate encoding functions
 -- | of the form `a -> Foreign` using `generics-rep` deriving.
 -- |
@@ -105,3 +130,15 @@ instance encodeNullOrUndefined :: Encode a => Encode (NullOrUndefined a) where
 
 instance strMapEncode :: Encode v => Encode (StrMap.StrMap v) where 
   encode = toForeign <<< StrMap.mapWithKey (\_ -> encode)
+
+class EncodeKey k where
+  encodeKey :: k -> String
+
+instance intEncodeKey :: EncodeKey Int where
+  encodeKey = show
+
+instance mapEncode :: (EncodeKey k, Encode v) => Encode (M.Map k v) where
+  encode = toForeign
+           <<< StrMap.fromFoldable
+           <<< map (\(Tuple k v) -> (Tuple (encodeKey k) (encode v)))
+           <<< (M.toUnfoldable :: M.Map k v -> Array (Tuple k v))
